@@ -31,8 +31,12 @@ import utils2    # Amir version modifed save_image func
 #------------------------------------------------------------------------
 
 
-def get_args_parser():
-    parser = argparse.ArgumentParser('Set transformer detector', add_help=False)
+# def get_args_parser():
+
+if __name__ == '__main__':
+    # Construct the argument parser.
+    parser = argparse.ArgumentParser()
+#     parser = argparse.ArgumentParser('Set transformer detector', add_help=False)
     parser.add_argument('--lr', default=1e-4, type=float)
     parser.add_argument('--lr_backbone', default=1e-5, type=float)
     parser.add_argument('--batch_size', default=2, type=int)
@@ -114,11 +118,18 @@ def get_args_parser():
                         help='number of distributed processes')
     parser.add_argument('--dist_url', default='env://', help='url used to set up distributed training')
     
-    
     parser.add_argument('--attack', default='', type=str)
+    parser.add_argument('--epsilon', default=0, type=float)
+    parser.add_argument('--save_images', default='False', type=str, choices=('False', 'True'))
+    parser.add_argument('--save_images_path', default='imgs/', type=str)
+    parser.add_argument('--attack_type', default='', type=str)
+    parser.add_argument('--pgd_eps', default=5/255, type=float)
+    parser.add_argument('--pgd_iters', default=15, type=int)
+    
+    
     
         
-    return parser
+#     return parser
 
 
 #------------------------------------------------------------------------
@@ -148,11 +159,11 @@ COLORS = [[0.000, 0.447, 0.741], [0.850, 0.325, 0.098], [0.929, 0.694, 0.125],
           [0.494, 0.184, 0.556], [0.466, 0.674, 0.188], [0.301, 0.745, 0.933]]
 
 # standard PyTorch mean-std input image normalization
-transform = T.Compose([
-    T.Resize(800),
-    T.ToTensor(),
-    T.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
-])
+# transform = T.Compose([
+#     T.Resize(800),
+#     T.ToTensor(),
+#     T.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
+# ])
 
 # for output bounding box post-processing
 def box_cxcywh_to_xyxy(x):
@@ -186,15 +197,63 @@ def plot_results(pil_img, prob, boxes):
 
 
 
-def fgsm_attack(image, epsilon, data_grad):
+def fgsm_attack(img_tensors, epsilon, model, labels, criterion, UnNorm):
         # Collect the element-wise sign of the data gradient
-        sign_data_grad = data_grad.sign()
+        
+        outputs= model(img_tensors)
+
+        loss_dict = criterion(outputs, [annotation[0]])
+        loss_ce= -loss_dict['loss_ce']
+        # weight_dict = criterion.weight_dict
+        #print('loss_ce: .............', loss_ce)
+        # Calculate gradients of model in backward pass
+        loss_ce.backward()
+        img_grad = img_tensors.tensors.grad
+        
+        # Restore the data to its original scale:
+        img_denorm = UnNorm(img_tensors.tensors[0].detach().cpu())
+                        
+        img_denorm = img_denorm.to(device)
+    
+        sign_data_grad = img_grad.sign()
         # Create the perturbed image by adjusting each pixel of the input image
-        perturbed_image = image + epsilon*sign_data_grad
+        perturbed_image = img_denorm + epsilon*sign_data_grad
         # Adding clipping to maintain [0, 1] range
         perturbed_image = torch.clamp(perturbed_image, 0, 1)
         # Return the perturbed image
         return perturbed_image
+
+def pgd_attack(img_tensors, alpha, model, labels, criterion, UnNorm, eps, iters):
+
+
+        img_denorm = UnNorm(img_tensors.tensors[0].detach().cpu())        
+        img_denorm = img_denorm.to(device)
+        final_noise = 0
+        for i in range(iters):
+            #print(img_tensors.tensors)
+
+            # Restore the data to its original scale:
+            
+            outputs= model(img_tensors)
+            model.zero_grad()
+            loss_dict = criterion(outputs, [annotation[0]])
+            loss_ce= -loss_dict['loss_ce']
+            # weight_dict = criterion.weight_dict
+            #print('loss_ce: .............', loss_ce)
+            # Calculate gradients of model in backward pass
+            loss_ce.backward()
+            img_grad = img_tensors.tensors.grad
+        
+            sign_data_grad = img_grad.sign()
+
+            noise = torch.clamp(alpha*sign_data_grad, min=-eps, max=eps)
+            perturbed_image = torch.clamp(img_tensors.tensors + noise, min=0, max=1).detach_()
+            img_tensors.tensors = perturbed_image
+            img_tensors.tensors.requires_grad = True
+            final_noise += noise
+        
+        saved_image = torch.clamp(img_denorm + final_noise, min=0, max=1)
+        return saved_image
 
 class Adv_Dataset(torch.utils.data.Dataset):
     'Characterizes a dataset for PyTorch'
@@ -217,24 +276,37 @@ class Adv_Dataset(torch.utils.data.Dataset):
     
     
 #------------------------------------------------------------------------
+# args = vars(parser.parse_args())
 
 
-parser = argparse.ArgumentParser('DETR training and evaluation script', parents=[get_args_parser()])
-args = parser.parse_args(args=[])
+# parser = argparse.ArgumentParser('DETR training and evaluation script', parents=[get_args_parser()])
+# args = parser.parse_args(args=[])
+args = parser.parse_args()
+
 args.batch_size = 1
 args.no_aux_loss = True
 args.eval = True
+# args.backbone = 'resnet101'
+# args.backbone = 'resnet50'
+# args.dilation = True
 # args.resume = 'https://dl.fbaipublicfiles.com/detr/detr-r50-e632da11.pth'
-args.backbone = 'resnet50'
-args.resume = 'https://dl.fbaipublicfiles.com/detr/detr-r50-e632da11.pth'
-args.coco_path = '/home/anazeri/Adv_ViT_OD/datasets/coco_dataset2017/'
+# args.resume = 'https://dl.fbaipublicfiles.com/detr/detr-r50-dc5-f0fb7ef5.pth'
+# args.resume = 'https://dl.fbaipublicfiles.com/detr/detr-r101-2c7b67e5.pth'
 
+args.coco_path = '/scratch/chunhez/Adv_ViT_OD/coco/'
+# args.adv_img_path = '/scratch1/anazeri/val2017_coco_noresize_detr_r101_adv02/'
+args.adv_img_path= None
 
 #------------------------------------------------------------------------
 
 
-
-dataset_val = build_dataset(image_set='val', args=args)
+# #-----------------------------------
+if args.save_images == "True":
+    # save image for transferability assessment.
+    from datasets import build_dataset2   # build_dataset2 imports imgs with their orig size without resizing in prepross part.
+    dataset_val = build_dataset2(image_set='val', args=args)
+else:
+    dataset_val = build_dataset(image_set='val', args=args)
 sampler_val = torch.utils.data.SequentialSampler(dataset_val)
 data_loader_val = DataLoader(dataset_val, args.batch_size, sampler=sampler_val, drop_last=False, collate_fn=utils.collate_fn, num_workers=args.num_workers)
 base_ds = get_coco_api_from_dataset(dataset_val)
@@ -280,6 +352,28 @@ for param in model.parameters():
     param.requires_grad = False
 
 
+    
+
+    
+# from functools import partial
+# def attn_drop_mask_grad(module, grad_innn, grad_out, gamma):
+# #     print(module)
+# #     print(grad_innn)
+# #     # print(grad_out)
+# #     print(type(grad_innn))      # tuple
+# #     print(grad_innn[0].size())  # torch.Size([197, 192])
+
+#     mask = torch.ones_like(grad_innn[0]) * gamma
+# #     print(f'mask size ....: {mask.size()}, mask....: {mask}' )   #torch.Size([197, 192])
+#     masked= mask * grad_innn[0][:]
+# #     print(f'mask * grad_innn[0][:] size ....: {masked.size()}, masked....: {masked}' )     #torch.Size([197, 192])
+#     return (masked, )
+
+# drop_hook_func = partial(attn_drop_mask_grad, gamma= 1000)
+# model.transformer.encoder.register_full_backward_hook(drop_hook_func)
+
+# drop_hook_func2 = partial(attn_drop_mask_grad, gamma= 1000)
+# model.backbone.register_full_backward_hook(drop_hook_func2)
 
 #------------------------------------------------------------------------
 #### get original images sizes
@@ -294,7 +388,6 @@ if get_imgs_sizes:
 # attack = True
 
 args.attack='yes'
-
 
 if args.attack== 'yes':
         import torch.multiprocessing
@@ -311,30 +404,26 @@ if args.attack== 'yes':
         UnNorm= UnNormalize(mean= [0.485, 0.456, 0.406], std= [0.229, 0.224, 0.225])
         
         imgs_hw_list = np.loadtxt("raw_imgs_hw_np.csv", delimiter=",", dtype=int)
-        epsilon = 0.2
+#         epsilon = 0.03
+        
         img_tensors_list = []
         annotation_list = []
         coco_anno_list = []
         img_grads_list = []  
         
-        save_images = True
+#         save_images = False
         save_grads = False
         
         for i, (img, annotation) in enumerate(data_loader_val):
             
-            
+                
+                
                 img_tensors = img.to(device)
                 img_tensors.tensors.requires_grad = True
+
+                """
                 outputs= model(img_tensors)
-                """
-                im_size  = [img_tensors.tensors.size(dim = 3),img_tensors.tensors.size(dim = 2)]
-                # keep only predictions with 0.7+ confidence
-                probas = outputs['pred_logits'].softmax(-1)[0, :, :-1]
-                keep = probas.max(-1).values > 0.7
-                # convert boxes from [0; 1] to image scales
-                bboxes_scaled = rescale_bboxes(outputs['pred_boxes'][0, keep], im_size, device)
-                plot_results(img_tensors.tensors[0].detach().cpu().permute(1, 2, 0), probas[keep], bboxes_scaled)
-                """
+                
                 loss_dict = criterion(outputs, [annotation[0]])
                 loss_ce= -loss_dict['loss_ce']
                 # weight_dict = criterion.weight_dict
@@ -342,47 +431,32 @@ if args.attack== 'yes':
                 # Calculate gradients of model in backward pass
                 loss_ce.backward()
                 img_grad = img_tensors.tensors.grad
-                img_grad = F.resize(img_grad, imgs_hw_list[i])
-                img_grad = F.resize(img_grad, [img.tensors[0].size()[-2], img.tensors[0].size()[-1]])
-                
-                # print("img_grad ....................:", img_grad)
-                # print("img_grad size....................:", img_grad.size())
-                
                 
                 # Restore the data to its original scale:
                 img_denorm = UnNorm(img_tensors.tensors[0].detach().cpu())
-                
-                # print("img_denorm..........:", img_denorm)
-                
+                                
                 img_denorm = img_denorm.to(device)
-                
+                """
+            
                 # Call FGSM Attack:
-                perturbed_img = fgsm_attack(img_denorm, epsilon, img_grad) # size: [1, 3, 800, 1201]
-                
-                # print("perturbed_img..........:", perturbed_img)
-                
+                #perturbed_img = fgsm_attack(img_denorm, args.epsilon, img_grad) # size: [1, 3, 800, 1201]
+                if args.attack_type == 'fgsm':
+                    perturbed_img = fgsm_attack(img_tensors, args.epsilon, model, annotation, criterion, UnNorm) # size: [1, 3, 800, 1201]
+
+                if args.attack_type == 'pgd':
+                    perturbed_img = pgd_attack(img_tensors, args.epsilon, model, annotation, criterion, UnNorm, args.pgd_eps, args.pgd_iters) # size: [1, 3, 800, 1201]
+
+
+            
                 perturbed_img_norm = F.normalize(perturbed_img, mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
                 img_tensors.tensors = perturbed_img_norm       
-                
-                # print("perturbed_img_norm..........:", perturbed_img_norm)
-
-          
-                
-                """
-                adv_outputs = model(adv_tensors)
-                # keep only predictions with 0.7+ confidence
-                adv_probas = adv_outputs['pred_logits'].softmax(-1)[0, :, :-1]
-                adv_keep = adv_probas.max(-1).values > 0.7
-                # convert boxes from [0; 1] to image scales
-                adv_bboxes_scaled = rescale_bboxes(adv_outputs['pred_boxes'][0, adv_keep], im_size, device)
-                plot_results(perturbed_img[0].detach().cpu().permute(1, 2, 0), adv_probas[keep], adv_bboxes_scaled)
-                """
  
                 
-                if save_images:
+                if args.save_images =="True":
                     perturbed_img_resiz = F.resize(perturbed_img, imgs_hw_list[i] )
-                    utils2.save_image(perturbed_img_resiz, 
-                                      "datasets/coco_dataset2017/val2017_adv02_gradmod/"+imgs_filenames_list[i]+".jpg")
+                    utils2.save_image(perturbed_img_resiz, args.save_images_path + imgs_filenames_list[i]+ ".jpg")
+#                     "/scratch1/anazeri/val2017_coco_origsize_detr_r50DC5_adv02/"
+                    del perturbed_img_resiz
                 
                 if save_grads:
                     img_grads_list.append(F.resize(img_grad, imgs_hw_list[i]).detach().cpu())
@@ -393,15 +467,17 @@ if args.attack== 'yes':
                 
                 img_tensors_list.append(img_tensors.tensors[0].detach().cpu())
                 annotation_list.append(annotation[0])
-                print(i)
+#                 print(i)
                 if i % 100 == 0:
                     print("%d Finished" % i)
-            
-                if i == 10:
+
+                if i == 99:
                     break
                 
                 del img
                 del annotation 
+                del img_tensors
+                del perturbed_img
         if save_grads:
             imgs_grads_dict= dict(list(enumerate(img_grads_list)))
             torch.save(imgs_grads_dict, "/scratch1/anazeri/imgs_grads_tot")
@@ -443,50 +519,56 @@ if args.attack == 'no':
     import torchvision.transforms.functional as F
     from datasets.funcs import get_imgs_filenames, UnNormalize
     
-    UnNorm= UnNormalize(mean= [0.485, 0.456, 0.406], std= [0.229, 0.224, 0.225])
-    imgs_grads= torch.load("/scratch1/anazeri/imgs_grads_tot")
+#     UnNorm= UnNormalize(mean= [0.485, 0.456, 0.406], std= [0.229, 0.224, 0.225])
+#     imgs_grads= torch.load("/scratch1/anazeri/imgs_grads_tot")
 
         
-    img_adv_list =[]
-    annotation_adv_list = []
-    for i, (img, annotation) in enumerate(data_loader_val):
+#     img_adv_list =[]
+#     annotation_adv_list = []
+#     for i, (img, annotation) in enumerate(data_loader_val):
 
 
-        # Restore the data to its original scale:
-        img_denorm = UnNorm(img.tensors[0].detach().cpu())                
-        img_denorm = img_denorm.to(device)
+#         # Restore the data to its original scale:
+#         img_denorm = UnNorm(img.tensors[0].detach().cpu())                
+#         img_denorm = img_denorm.to(device)
 
-        img_grad = F.resize(imgs_grads[i], [img.tensors[0].size()[-2], img.tensors[0].size()[-1]])
-        print("img_grad ....................:", img_grad)
-        print("img_grad size....................:", img_grad.size())
-        # Call FGSM Attack:
-        perturbed_img = fgsm_attack(img_denorm, 0.2, img_grad.to(device)) # size: [1, 3, 800, 1201]
+#         img_grad = F.resize(imgs_grads[i], [img.tensors[0].size()[-2], img.tensors[0].size()[-1]])
+#         print("img_grad ....................:", img_grad)
+#         print("img_grad size....................:", img_grad.size())
+#         # Call FGSM Attack:
+#         perturbed_img = fgsm_attack(img_denorm, 0.2, img_grad.to(device)) # size: [1, 3, 800, 1201]
 
-        perturbed_img_norm = F.normalize(perturbed_img, mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
-        img.tensors = perturbed_img_norm
-
-
-        img_adv_list.append(img.tensors[0].detach().cpu())
-        annotation_adv_list.append(annotation[0])
-        print(i)
+#         perturbed_img_norm = F.normalize(perturbed_img, mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+#         img.tensors = perturbed_img_norm
 
 
-
-        del img
-        del annotation
-
-        if i == 0:
-            break
+#         img_adv_list.append(img.tensors[0].detach().cpu())
+#         annotation_adv_list.append(annotation[0])
+#         print(i)
 
 
 
-    _dataset_val = Adv_Dataset(img_adv_list, annotation_adv_list)
-    _sampler_val = torch.utils.data.SequentialSampler(_dataset_val)
-    _data_loader_val = DataLoader(_dataset_val, args.batch_size, sampler=_sampler_val, drop_last=False, collate_fn=utils.collate_fn, num_workers=args.num_workers)
+#         del img
+#         del annotation
+
+#         if i == 0:
+#             break
+
+
+
+#     _dataset_val = Adv_Dataset(img_adv_list, annotation_adv_list)
+#     _sampler_val = torch.utils.data.SequentialSampler(_dataset_val)
+#     _data_loader_val = DataLoader(_dataset_val, args.batch_size, sampler=_sampler_val, drop_last=False, collate_fn=utils.collate_fn, num_workers=args.num_workers)
+#     test_stats, coco_evaluator = evaluate(model, criterion, postprocessors,
+#                                               _data_loader_val, base_ds, device, args.output_dir)
+
+
     test_stats, coco_evaluator = evaluate(model, criterion, postprocessors,
-                                              _data_loader_val, base_ds, device, args.output_dir)
+                                              data_loader_val, base_ds, device, args.output_dir)
 
+del model
 
+torch.cuda.empty_cache()
 
 
 
