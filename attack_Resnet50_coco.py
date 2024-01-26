@@ -3,6 +3,9 @@ import json
 import random
 import time
 from pathlib import Path
+import torch.optim as optim
+import utils2
+from datasets.funcs import get_imgs_filenames, UnNormalize
 
 import numpy as np
 import torch
@@ -11,6 +14,7 @@ from torch.utils.data import DataLoader, DistributedSampler
 import datasets
 import util.misc as utils
 from datasets import build_dataset, get_coco_api_from_dataset
+from datasets.funcs import get_imgs_filenames, UnNormalize
 from engine import evaluate, train_one_epoch
 from models import build_model
 
@@ -26,8 +30,8 @@ from PIL import Image
 import requests
 
 import utils2    # Amir version modifed save_image func
-
-
+import torch.optim as optim
+import copy
 #------------------------------------------------------------------------
 
 
@@ -125,7 +129,11 @@ if __name__ == '__main__':
     parser.add_argument('--attack_type', default='', type=str)
     parser.add_argument('--pgd_eps', default=5/255, type=float)
     parser.add_argument('--pgd_iters', default=15, type=int)
-    
+    parser.add_argument('--cw_c', default=10, type=float)
+    parser.add_argument('--cw_kappa', default=0, type=float)
+    parser.add_argument('--cw_iters', default=1000, type=int)
+    parser.add_argument('--cw_lr', default=0.01, type=float)
+
     
     
         
@@ -197,7 +205,7 @@ def plot_results(pil_img, prob, boxes):
 
 
 
-def fgsm_attack(img_tensors, epsilon, model, labels, criterion, UnNorm):
+def fgsm_attack(img_tensors, epsilon, model, annotation, criterion, UnNorm):
         # Collect the element-wise sign of the data gradient
         
         outputs= model(img_tensors)
@@ -211,7 +219,7 @@ def fgsm_attack(img_tensors, epsilon, model, labels, criterion, UnNorm):
         img_grad = img_tensors.tensors.grad
         
         # Restore the data to its original scale:
-        img_denorm = UnNorm(img_tensors.tensors[0].detach().cpu())
+        img_denorm = UnNorm(img_tensors.tensors.detach().cpu())
                         
         img_denorm = img_denorm.to(device)
     
@@ -223,10 +231,10 @@ def fgsm_attack(img_tensors, epsilon, model, labels, criterion, UnNorm):
         # Return the perturbed image
         return perturbed_image
 
-def pgd_attack(img_tensors, alpha, model, labels, criterion, UnNorm, eps, iters):
+def pgd_attack(img_tensors, alpha, model, annotation, criterion, UnNorm, eps, iters):
 
 
-        img_denorm = UnNorm(img_tensors.tensors[0].detach().cpu())        
+        img_denorm = UnNorm(img_tensors.tensors.detach().cpu())        
         img_denorm = img_denorm.to(device)
         final_noise = 0
         for i in range(iters):
@@ -254,6 +262,65 @@ def pgd_attack(img_tensors, alpha, model, labels, criterion, UnNorm, eps, iters)
         
         saved_image = torch.clamp(img_denorm + final_noise, min=0, max=1)
         return saved_image
+
+def cw_attack(img_tensors, learning_rate, model, annotation, criterion, UnNorm, c, kappa, iters):        
+
+        img_denorm = UnNorm(img_tensors.tensors.detach().cpu())        
+        img_denorm = img_denorm.to(device)
+        img_tensors.tensors = img_denorm
+        img_tensors.tensors.requires_grad = True
+        # Define f-function
+        def f(x) :
+            outputs = model(x)
+            num_classes = 91
+            src_logits = outputs['pred_logits']
+            outputs_without_aux = {k: v for k, v in outputs.items() if k != 'aux_outputs'}
+            indices = criterion.matcher(outputs_without_aux, [annotation[0]])
+            idx = criterion._get_src_permutation_idx(indices)
+            target_classes_o = torch.cat([t["labels"][J] for t, (_, J) in zip([annotation[0]], indices)])
+            target_classes_o = target_classes_o.to(device)
+            target_classes = torch.full(src_logits.shape[:2], num_classes,
+                                        dtype=torch.int64, device=src_logits.device)
+            target_classes[idx] = target_classes_o
+            one_hot_labels = F.one_hot(target_classes.to(src_logits.device))
+    
+            i, _ = torch.max((1-one_hot_labels)*src_logits, dim=2)
+            j = torch.masked_select(src_logits, one_hot_labels.bool())
+            
+            return torch.clamp(j-i, min=-kappa)
+
+        w = torch.zeros_like(img_tensors.tensors, requires_grad=True).to(device)
+        optimizer = optim.Adam([w], lr=learning_rate)
+        prev = 1e10
+
+        for step in range(iters) :
+            a = 1/2*(nn.Tanh()(w) + 1)
+            adv_tensors = copy.deepcopy(img_tensors)
+            adv_tensors.tensors = a
+            
+            loss1 = nn.MSELoss(reduction='sum')(a, img_tensors.tensors)
+            loss2 = torch.sum(c*f(adv_tensors))
+    
+            cost = loss1 + loss2
+    
+            optimizer.zero_grad()
+            cost.backward()
+            optimizer.step()
+    
+            # Early Stop when loss does not converge.
+            if step % (iters//10) == 0 :
+                if cost > prev :
+                    print('Attack Stopped due to CONVERGENCE....')
+                    return a
+                    
+                prev = cost
+            
+            print('- Learning Progress : %2.2f %%        ' %((step+1)/iters*100), end='\r')
+
+        perturbed_img = 1/2*(nn.Tanh()(w) + 1)
+        return perturbed_img
+
+
 
 class Adv_Dataset(torch.utils.data.Dataset):
     'Characterizes a dataset for PyTorch'
@@ -395,7 +462,7 @@ if args.attack== 'yes':
 
         import numpy
         import numpy as np
-        import torchvision.transforms.functional as F
+        import torchvision.transforms.functional as FF
         import utils2
         from datasets.funcs import get_imgs_filenames, UnNormalize
         
@@ -421,6 +488,7 @@ if args.attack== 'yes':
                 img_tensors = img.to(device)
                 img_tensors.tensors.requires_grad = True
 
+                
                 """
                 outputs= model(img_tensors)
                 
@@ -446,20 +514,23 @@ if args.attack== 'yes':
                 if args.attack_type == 'pgd':
                     perturbed_img = pgd_attack(img_tensors, args.epsilon, model, annotation, criterion, UnNorm, args.pgd_eps, args.pgd_iters) # size: [1, 3, 800, 1201]
 
+                if args.attack_type == 'cw':
+                    perturbed_img = cw_attack(img_tensors, args.cw_lr, model, annotation, criterion, UnNorm, args.cw_c, args.cw_kappa, args.cw_iters) # size: [1, 3, 800, 1201]
+
 
             
-                perturbed_img_norm = F.normalize(perturbed_img, mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
-                img_tensors.tensors = perturbed_img_norm       
- 
+                #perturbed_img_norm = FF.normalize(perturbed_img, mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+                #img_tensors.tensors = perturbed_img_norm       
+                img_tensors.tensors = perturbed_img
                 
                 if args.save_images =="True":
-                    perturbed_img_resiz = F.resize(perturbed_img, imgs_hw_list[i] )
+                    perturbed_img_resiz = FF.resize(perturbed_img, imgs_hw_list[i] )
                     utils2.save_image(perturbed_img_resiz, args.save_images_path + imgs_filenames_list[i]+ ".jpg")
 #                     "/scratch1/anazeri/val2017_coco_origsize_detr_r50DC5_adv02/"
                     del perturbed_img_resiz
                 
                 if save_grads:
-                    img_grads_list.append(F.resize(img_grad, imgs_hw_list[i]).detach().cpu())
+                    img_grads_list.append(FF.resize(img_grad, imgs_hw_list[i]).detach().cpu())
                     # print(img_grads_list[0])  
                     # print(img_grads_list[0].size())
                     
@@ -470,9 +541,6 @@ if args.attack== 'yes':
 #                 print(i)
                 if i % 100 == 0:
                     print("%d Finished" % i)
-
-                if i == 99:
-                    break
                 
                 del img
                 del annotation 
