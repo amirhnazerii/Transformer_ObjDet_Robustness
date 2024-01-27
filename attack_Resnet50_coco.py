@@ -131,7 +131,7 @@ if __name__ == '__main__':
     parser.add_argument('--pgd_iters', default=15, type=int)
     parser.add_argument('--cw_c', default=10, type=float)
     parser.add_argument('--cw_kappa', default=0, type=float)
-    parser.add_argument('--cw_iters', default=1000, type=int)
+    parser.add_argument('--cw_iters', default=500, type=int)
     parser.add_argument('--cw_lr', default=0.01, type=float)
 
     
@@ -225,7 +225,10 @@ def fgsm_attack(img_tensors, epsilon, model, annotation, criterion, UnNorm):
     
         sign_data_grad = img_grad.sign()
         # Create the perturbed image by adjusting each pixel of the input image
-        perturbed_image = img_denorm + epsilon*sign_data_grad
+        if args.save_images == 'True':
+            perturbed_image = img_denorm + epsilon*sign_data_grad
+        else:
+            perturbed_image = img_tensors.tensors + epsilon*sign_data_grad
         # Adding clipping to maintain [0, 1] range
         perturbed_image = torch.clamp(perturbed_image, 0, 1)
         # Return the perturbed image
@@ -260,15 +263,19 @@ def pgd_attack(img_tensors, alpha, model, annotation, criterion, UnNorm, eps, it
             img_tensors.tensors.requires_grad = True
             final_noise += noise
         
-        saved_image = torch.clamp(img_denorm + final_noise, min=0, max=1)
+        if args.save_images == 'True':
+            saved_image = torch.clamp(img_denorm + final_noise, min=0, max=1)
+        else:
+            saved_image = torch.clamp(img_tensors.tensors + final_noise, min=0, max=1)
         return saved_image
 
 def cw_attack(img_tensors, learning_rate, model, annotation, criterion, UnNorm, c, kappa, iters):        
 
-        img_denorm = UnNorm(img_tensors.tensors.detach().cpu())        
-        img_denorm = img_denorm.to(device)
-        img_tensors.tensors = img_denorm
-        img_tensors.tensors.requires_grad = True
+        if args.save_images == 'True':
+            img_denorm = UnNorm(img_tensors.tensors.detach().cpu())        
+            img_denorm = img_denorm.to(device)
+            img_tensors.tensors = img_denorm
+            img_tensors.tensors.requires_grad = True
         # Define f-function
         def f(x) :
             outputs = model(x)
@@ -519,9 +526,9 @@ if args.attack== 'yes':
 
 
             
-                #perturbed_img_norm = FF.normalize(perturbed_img, mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
-                #img_tensors.tensors = perturbed_img_norm       
-                img_tensors.tensors = perturbed_img
+                perturbed_img_norm = FF.normalize(perturbed_img, mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+                img_tensors.tensors = perturbed_img_norm       
+                #img_tensors.tensors = perturbed_img
                 
                 if args.save_images =="True":
                     perturbed_img_resiz = FF.resize(perturbed_img, imgs_hw_list[i] )
@@ -541,6 +548,7 @@ if args.attack== 'yes':
 #                 print(i)
                 if i % 100 == 0:
                     print("%d Finished" % i)
+                    #break
                 
                 del img
                 del annotation 
