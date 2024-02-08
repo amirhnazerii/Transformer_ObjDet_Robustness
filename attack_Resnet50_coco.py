@@ -127,11 +127,11 @@ if __name__ == '__main__':
     parser.add_argument('--save_images', default='False', type=str, choices=('False', 'True'))
     parser.add_argument('--save_images_path', default='imgs/', type=str)
     parser.add_argument('--attack_type', default='', type=str)
-    parser.add_argument('--pgd_eps', default=5/255, type=float)
-    parser.add_argument('--pgd_iters', default=15, type=int)
-    parser.add_argument('--cw_c', default=10, type=float)
+    parser.add_argument('--pgd_eps', default=10/255, type=float)
+    parser.add_argument('--pgd_iters', default=10, type=int)
+    parser.add_argument('--cw_c', default=1, type=float)
     parser.add_argument('--cw_kappa', default=0, type=float)
-    parser.add_argument('--cw_iters', default=500, type=int)
+    parser.add_argument('--cw_iters', default=200, type=int)
     parser.add_argument('--cw_lr', default=0.01, type=float)
 
     
@@ -207,7 +207,7 @@ def plot_results(pil_img, prob, boxes):
 
 def fgsm_attack(img_tensors, epsilon, model, annotation, criterion, UnNorm):
         # Collect the element-wise sign of the data gradient
-        
+        img_tensors.tensors.requires_grad = True
         outputs= model(img_tensors)
 
         loss_dict = criterion(outputs, [annotation[0]])
@@ -240,6 +240,7 @@ def pgd_attack(img_tensors, alpha, model, annotation, criterion, UnNorm, eps, it
         img_denorm = UnNorm(img_tensors.tensors.detach().cpu())        
         img_denorm = img_denorm.to(device)
         final_noise = 0
+        img_tensors.tensors.requires_grad = True
         for i in range(iters):
             #print(img_tensors.tensors)
 
@@ -275,11 +276,11 @@ def cw_attack(img_tensors, learning_rate, model, annotation, criterion, UnNorm, 
             img_denorm = UnNorm(img_tensors.tensors.detach().cpu())        
             img_denorm = img_denorm.to(device)
             img_tensors.tensors = img_denorm
-            img_tensors.tensors.requires_grad = True
+        img_tensors.tensors.requires_grad = True
         # Define f-function
         def f(x) :
             outputs = model(x)
-            num_classes = 91
+            num_classes = 91 #number of classes + 1
             src_logits = outputs['pred_logits']
             outputs_without_aux = {k: v for k, v in outputs.items() if k != 'aux_outputs'}
             indices = criterion.matcher(outputs_without_aux, [annotation[0]])
@@ -547,9 +548,10 @@ if args.attack== 'yes':
                 annotation_list.append(annotation[0])
 #                 print(i)
                 if i % 100 == 0:
+                #if i == 99:
                     print("%d Finished" % i)
                     #break
-                
+                    
                 del img
                 del annotation 
                 del img_tensors
