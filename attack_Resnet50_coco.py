@@ -524,18 +524,19 @@ if args.attack== 'yes':
 
                 if args.attack_type == 'cw':
                     perturbed_img = cw_attack(img_tensors, args.cw_lr, model, annotation, criterion, UnNorm, args.cw_c, args.cw_kappa, args.cw_iters) # size: [1, 3, 800, 1201]
-
-
-            
-                perturbed_img_norm = FF.normalize(perturbed_img, mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
-                img_tensors.tensors = perturbed_img_norm       
-                #img_tensors.tensors = perturbed_img
+       
+                #
                 
                 if args.save_images =="True":
+                    perturbed_img_norm = FF.normalize(perturbed_img, mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+                    img_tensors.tensors = perturbed_img_norm
                     perturbed_img_resiz = FF.resize(perturbed_img, imgs_hw_list[i] )
                     utils2.save_image(perturbed_img_resiz, args.save_images_path + imgs_filenames_list[i]+ ".jpg")
 #                     "/scratch1/anazeri/val2017_coco_origsize_detr_r50DC5_adv02/"
                     del perturbed_img_resiz
+                    
+                else:
+                    img_tensors.tensors = perturbed_img
                 
                 if save_grads:
                     img_grads_list.append(FF.resize(img_grad, imgs_hw_list[i]).detach().cpu())
