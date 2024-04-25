@@ -492,7 +492,7 @@ if args.attack== 'yes':
                 img_tensors_list.append(img_tensors.tensors[0].detach().cpu())
                 annotation_list.append(annotation[0])
                 
-                #test for 100 images
+                #Initial test for 100 images
                 if i % 100 == 0:
                 #if i == 0:
                     print("%d Finished" % i)
