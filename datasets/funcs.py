@@ -25,7 +25,7 @@ class CocoDetection2(torchvision.datasets.CocoDetection):
         
         # from pycocotools.coco import COCO
         # self.coco = COCO(annFile)
-        self.imgs_filenames_raw= self.ids
+        self.imgs_filenames_raw= self.ids    # get id
 
 
 def build2(image_set, args):
@@ -51,17 +51,26 @@ def get_imgs_filenames(Image_set, Args):
     imgs_filenames_raw= build2(image_set=Image_set, args=Args) # imgs_filenames_raw : list
 
     imgs_filenames_list = []
-    for i in range(len(imgs_filenames_raw)):
-        img_filename_raw = str(imgs_filenames_raw[i])
-        zeros_len = 12 - len(img_filename_raw)
-        zeros = zeros_len*"0"
-        img_filename = zeros+img_filename_raw
-        imgs_filenames_list.append(img_filename)
+    
+    if Args.dataset == 'coco':
+        for i in range(len(imgs_filenames_raw)):
+            img_filename_raw = str(imgs_filenames_raw[i])
+            zeros_len = 12 - len(img_filename_raw)
+            zeros = zeros_len*"0"
+            img_filename = zeros+img_filename_raw
+            imgs_filenames_list.append(img_filename)
+    elif Args.dataset == 'kitti':
+        for i in range(len(imgs_filenames_raw)):
+            img_filename_raw = str(imgs_filenames_raw[i]-1)  # in kitti: filename integer = id -1
+            zeros_len = 6 - len(img_filename_raw)
+            zeros = zeros_len*"0"
+            img_filename = zeros+img_filename_raw
+            imgs_filenames_list.append(img_filename)
         
     return imgs_filenames_list
 
 
-def get_imgs_hw(Image_set, Args, save):
+def get_imgs_hw(Image_set, Args, raw_imgs_hw_name= None, save= False):
     
     """
     
@@ -84,7 +93,7 @@ def get_imgs_hw(Image_set, Args, save):
             #     break                
     raw_imgs_hw_list= np.array(raw_imgs_hw_list).astype(int)
     if save:
-        np.savetxt("raw_imgs_hw_np.csv", raw_imgs_hw_list, 
+        np.savetxt(raw_imgs_hw_name, raw_imgs_hw_list, 
               delimiter = ",")
     return raw_imgs_hw_list
     
