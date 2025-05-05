@@ -2,6 +2,14 @@
 
 # Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved
 """
+
+difference with original .coco.py:
+
+1- build(args.adv_img_path)
+2- noresize in make_coco_transforms() <= just use when saving image in ATTACK mode.
+
+
+
 COCO dataset which returns image_id for evaluation.
 
 Mostly copy-paste from https://github.com/pytorch/vision/blob/13b35ff/references/detection/coco_utils.py
@@ -153,15 +161,24 @@ def make_coco_transforms(image_set):
 
 
 def build(image_set, args):
-    root = Path(args.coco_path)
-    assert root.exists(), f'provided COCO path {root} does not exist'
-    mode = 'instances'
-    PATHS = {
-        "train": (root / "train2017", root / "annotations" / f'{mode}_train2017.json'),
-        "val": (root / "val2017", root / "annotations" / f'{mode}_val2017.json'),
-    }
     
-    img_folder, ann_file = PATHS[image_set]
+    if args.adv_img_path == None:
+        root = Path(args.coco_path)
+        assert root.exists(), f'provided COCO path {root} does not exist'
+        mode = 'instances'
+        PATHS = {
+            "train": (root / "train2017", root / "annotations" / f'{mode}_train2017.json'),
+            "val": (root / "val2017", root / "annotations" / f'{mode}_val2017.json'),
+        }
+        img_folder, ann_file = PATHS[image_set]
+        
+    elif args.adv_img_path != None:
+        mode = 'instances'
+        root_anno = Path(args.coco_path)/ "annotations" / f'{mode}_val2017.json'
+        assert root_anno.exists(), f'provided COCO annotation path {root_anno} does not exist or adv_img_path is None'
+        root_imgs = Path(args.adv_img_path)
+        img_folder, ann_file = root_imgs, root_anno
+
     
     dataset = CocoDetection(img_folder, ann_file, transforms=make_coco_transforms(image_set), return_masks=args.masks)
 
