@@ -1,0 +1,17 @@
+# Ignore specific file types
+*.json
+*.pth
+*.pkl
+*.txt
+*.xlsx
+*.dat
+*.bin
+*.tiff
+
+# Ignore the outputs/ folder and its contents
+
+datasets/coco_dataset2017/instances_train2017.json
+datasets/coco_dataset2017/
+outputs/
+d2/
+eval_results/
