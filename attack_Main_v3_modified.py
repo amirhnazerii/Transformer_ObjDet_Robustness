@@ -138,6 +138,8 @@ if __name__ == '__main__':
                         help='gradient clipping max norm')
 
     # Model parameters
+    parser.add_argument('--num_classes', type=int, default=None,
+                        help="Number of classes in dataset+1")
     parser.add_argument('--frozen_weights', type=str, default=None,
                         help="Path to the pretrained model. If set, only the mask head will be trained")
     # * Backbone
@@ -222,8 +224,8 @@ if __name__ == '__main__':
     parser.add_argument('--cw_kappa', default=0, type=float)
     parser.add_argument('--cw_iters', default=200, type=int)
     parser.add_argument('--cw_lr', default=0.01, type=float)
-    parser.add_argument('--dataset', default='', type=str, 
-                       help='either coco or kitti')
+    # parser.add_argument('--dataset', default='', type=str, 
+    #                    help='either coco or kitti')
                        
     # Add the random_start parameter to the argument parser in the main section:
     parser.add_argument('--random_start', type=str, default='True', choices=('True', 'False'),
@@ -472,25 +474,17 @@ def dag_attack(img_tensors, step_size, model, annotation, criterion, eps, iters,
         model.zero_grad()
         
         if targeted:
-            # For targeted attack, we want to maximize probability of target class
             assert target_class is not None, "Target class must be specified for targeted attack"
-            
-            # Extract logits from model output
-            pred_logits = outputs['pred_logits']
-            
-            # Create one-hot target
-            num_classes = pred_logits.shape[-1]
-            target_onehot = F.one_hot(torch.tensor([target_class]), num_classes).float().to(device)
-            target_onehot = target_onehot.unsqueeze(1).repeat(1, pred_logits.shape[1], 1)
-            
-            # Classification loss (maximize probability of target class)
-            probs = F.softmax(pred_logits, dim=-1)
-            target_probs = (probs * target_onehot).sum(dim=-1)
-            loss = -torch.log(target_probs + 1e-10).mean()
+        
+            # Clone and modify annotation: set all labels to target_class
+            modified_anno = copy.deepcopy(annotation[0])
+            modified_anno['labels'] = torch.full_like(modified_anno['labels'], target_class)
+        
+            # Compute only classification loss with modified labels
+            loss_dict = criterion(outputs, [modified_anno])
+            loss = loss_dict['loss_ce']
         else:
-            # For untargeted attack, use negative CE loss like other attacks
-            loss_dict = criterion(outputs, [annotation[0]])
-            loss = -loss_dict['loss_ce']  # Negate for maximization
+            raise ValueError(f'args.targeted must be set True')
         
         loss_history.append(loss.item())
         
@@ -555,14 +549,17 @@ args.adv_img_path= None
 
 #------------------------------------------------------------------------
 
-
-# #-----------------------------------
-if args.save_images == "True":
-    # save image for transferability assessment.
-    from datasets import build_dataset2   # build_dataset2 imports imgs with their orig size without resizing in prepross part.
-    dataset_val = build_dataset2(image_set='val', args=args)
-else:
-    dataset_val = build_dataset(image_set='val', args=args)
+#//# outdated
+# if args.save_images == "True":
+#     # save image for transferability assessment.
+#     from datasets import build_dataset2   # build_dataset2 imports imgs with their orig size without resizing in prepross part.
+#     dataset_val = build_dataset2(image_set='val', args=args)
+# else:
+#     dataset_val = build_dataset(image_set='val', args=args)
+##//##
+    
+dataset_val = build_dataset(image_set='val', args=args)    
+    
 sampler_val = torch.utils.data.SequentialSampler(dataset_val)
 data_loader_val = DataLoader(dataset_val, args.batch_size, sampler=sampler_val, drop_last=False, collate_fn=utils.collate_fn, num_workers=args.num_workers)
 base_ds = get_coco_api_from_dataset(dataset_val)
@@ -635,9 +632,9 @@ if args.attack== 'yes':
         UnNorm= UnNormalize(mean= [0.485, 0.456, 0.406], std= [0.229, 0.224, 0.225])
         
 
-        if args.dataset == 'coco':
+        if args.dataset_file == 'coco':
             imgs_hw_list = np.loadtxt("raw_imgs_hw_np.csv", delimiter=",", dtype=int)
-        elif args.dataset == 'kitti':
+        elif args.dataset_file == 'kitti':
             imgs_hw_list = np.loadtxt("KITTI_raw_imgs_hw.csv", delimiter=",", dtype=int)
 
         
@@ -721,7 +718,7 @@ if args.attack== 'yes':
                     perturbed_img_resiz = FF.resize(adv_denorm, imgs_hw_list[i] )
                     # Add before save_image
                     tensor = perturbed_img_resiz
-                    utils2.save_image(perturbed_img_resiz, args.save_images_path + imgs_filenames_list[i]+ ".jpg")
+                    utils2.save_image(perturbed_img_resiz, args.save_images_path + imgs_filenames_list[i]+ ".png")
 # #                     "/scratch1/anazeri/val2017_coco_origsize_detr_r50DC5_adv02/"
                     # # Convert tensor to PIL Image
                     # pil_img = TF.to_pil_image(perturbed_img_resiz)
