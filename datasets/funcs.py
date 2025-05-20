@@ -1,8 +1,10 @@
 ###
 
 '''
-My added code.
+datasets/funcs.py does not exist in original detr https://github.com/facebookresearch/detr/tree/main/datasets
 
+Created to help save attacked images correctly.
+e.g. get_imgs_hw()
 
 '''
 
