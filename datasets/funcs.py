@@ -54,14 +54,14 @@ def get_imgs_filenames(Image_set, Args):
 
     imgs_filenames_list = []
     
-    if Args.dataset == 'coco':
+    if Args.dataset_file == 'coco':
         for i in range(len(imgs_filenames_raw)):
             img_filename_raw = str(imgs_filenames_raw[i])
             zeros_len = 12 - len(img_filename_raw)
             zeros = zeros_len*"0"
             img_filename = zeros+img_filename_raw
             imgs_filenames_list.append(img_filename)
-    elif Args.dataset == 'kitti':
+    elif Args.dataset_file == 'kitti':
         for i in range(len(imgs_filenames_raw)):
             img_filename_raw = str(imgs_filenames_raw[i]-1)  # in kitti: filename integer = id -1
             zeros_len = 6 - len(img_filename_raw)
