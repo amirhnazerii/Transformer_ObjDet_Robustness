@@ -178,9 +178,24 @@ def make_kitti_transforms(image_set):
     
     
     
-    
+def make_cityscapes_transforms(image_set):
+    #### 
+    normalize = T.Compose([
+        T.ToTensor(),
+        T.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
+    ])
     
 
+    if image_set == 'val':
+        return T.Compose([
+            normalize
+        ])
+    else: 
+        raise ValueError(f'unknown {image_set}')    
+    
+
+    
+    
 def build(image_set, args):
     root = Path(args.coco_path)
     assert root.exists(), f'provided COCO path {root} does not exist'
@@ -195,6 +210,8 @@ def build(image_set, args):
         dataset = CocoDetection(img_folder, ann_file, transforms=make_coco_transforms(image_set), return_masks=args.masks)
     elif args.dataset_file == 'coco':
         dataset = CocoDetection(img_folder, ann_file, transforms=make_kitti_transforms(image_set), return_masks=args.masks)
+    elif args.dataset_file == 'cityscapes':
+        dataset = CocoDetection(img_folder, ann_file, transforms=make_cityscapes_transforms(image_set), return_masks=args.masks)    
     else:
         raise ValueError(f'args.dataset_file: {args.dataset_file} is invalid.')
     return dataset
