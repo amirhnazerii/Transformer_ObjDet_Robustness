@@ -68,6 +68,13 @@ def get_imgs_filenames(Image_set, Args):
             zeros = zeros_len*"0"
             img_filename = zeros+img_filename_raw
             imgs_filenames_list.append(img_filename)
+    elif Args.dataset_file == 'cityscapes':
+        for i in range(len(imgs_filenames_raw)):
+            img_filename_raw = str(imgs_filenames_raw[i])  # cityscapes
+            zeros_len = 12 - len(img_filename_raw)
+            zeros = zeros_len*"0"
+            img_filename = zeros+img_filename_raw
+            imgs_filenames_list.append(img_filename)
         
     return imgs_filenames_list
 
