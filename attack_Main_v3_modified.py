@@ -96,7 +96,6 @@ from torch.utils.data import DataLoader, DistributedSampler
 import datasets
 import util.misc as utils
 from datasets import build_dataset, get_coco_api_from_dataset
-from datasets.funcs import get_imgs_filenames, UnNormalize
 from engine import evaluate, train_one_epoch
 from models import build_model
 
@@ -531,33 +530,18 @@ class Adv_Dataset(torch.utils.data.Dataset):
 # args = vars(parser.parse_args())
 
 
-# parser = argparse.ArgumentParser('DETR training and evaluation script', parents=[get_args_parser()])
-# args = parser.parse_args(args=[])
 args = parser.parse_args()
 
 args.batch_size = 1
 args.no_aux_loss = True
 args.eval = True
-# args.backbone = 'resnet101'
-# args.backbone = 'resnet50'
-# args.dilation = True
-# args.resume = 'https://dl.fbaipublicfiles.com/detr/detr-r50-e632da11.pth'
 
 
-# args.adv_img_path = '/scratch1/anazeri/val2017_coco_noresize_detr_r101_adv02/'
 args.adv_img_path= None
 
 #------------------------------------------------------------------------
 
-#//# outdated
-# if args.save_images == "True":
-#     # save image for transferability assessment.
-#     from datasets import build_dataset2   # build_dataset2 imports imgs with their orig size without resizing in prepross part.
-#     dataset_val = build_dataset2(image_set='val', args=args)
-# else:
-#     dataset_val = build_dataset(image_set='val', args=args)
-##//##
-    
+
 dataset_val = build_dataset(image_set='val', args=args)    
     
 sampler_val = torch.utils.data.SequentialSampler(dataset_val)
@@ -609,7 +593,7 @@ for param in model.parameters():
 
 
 #------------------------------------------------------------------------
-#### get original images sizes
+#### retrieve original images sizes
 get_imgs_sizes = False
 if get_imgs_sizes:
     from datasets.funcs import get_imgs_hw
@@ -678,8 +662,6 @@ if args.attack== 'yes':
                 img_denorm = img_denorm.to(device)
                 """
 
-                # Call FGSM Attack:
-                #perturbed_img = fgsm_attack(img_denorm, args.epsilon, img_grad) # size: [1, 3, 800, 1201]
                 if args.attack_type == 'fgsm':
                     perturbed_img = fgsm_attack(img_tensors, args.epsilon, model, annotation, criterion) # size: [1, 3, 800, 1201]
 
@@ -707,23 +689,23 @@ if args.attack== 'yes':
                         target_class=args.dag_target_class
                     )
 
-
-                    
                 img_tensors.tensors = perturbed_img  
+                
+                
                 
                 if args.save_images =="True":
                     from PIL import Image
                     import torchvision.transforms.functional as TF
                     adv_denorm = UnNorm(perturbed_img.detach().cpu())
-                    perturbed_img_resiz = FF.resize(adv_denorm, imgs_hw_list[i] )
+                    
+                    if args.dataset_file == 'cityscapes':
+                        perturbed_img_resiz = FF.resize(adv_denorm, np.array([1024, 2048]))
+                    else:
+                        perturbed_img_resiz = FF.resize(adv_denorm, imgs_hw_list[i] )
                     # Add before save_image
                     tensor = perturbed_img_resiz
                     utils2.save_image(perturbed_img_resiz, args.save_images_path + imgs_filenames_list[i]+ ".png")
-# #                     "/scratch1/anazeri/val2017_coco_origsize_detr_r50DC5_adv02/"
-                    # # Convert tensor to PIL Image
-                    # pil_img = TF.to_pil_image(perturbed_img_resiz)
-                    # # Save with high quality
-                    # pil_img.save(args.save_images_path + imgs_filenames_list[i] + ".jpg", quality=95)
+# #                    
 
                     del perturbed_img_resiz
                 
@@ -748,9 +730,6 @@ if args.attack== 'yes':
                 del annotation 
                 del img_tensors
                 del perturbed_img
-        if save_grads:
-            imgs_grads_dict= dict(list(enumerate(img_grads_list)))
-            torch.save(imgs_grads_dict, "/scratch/anazeri/imgs_grads_tot")
         
 
         adv_dataset_val = Adv_Dataset(img_tensors_list, annotation_list)
@@ -784,15 +763,16 @@ if args.attack == 'no':
 
 
     
-    test_stats, coco_evaluator = evaluate(model, criterion, postprocessors,
-                                         data_loader_val, base_ds, device, args.output_dir)
+    for i, (img, annotation) in enumerate(tqdm(data_loader_val)):    
+                
+        print('annotation:', annotation)
 
-del img_tensors_list   
-del annotation_list   
-del adv_dataset_val    
-del adv_data_loader_val   
+        if i == 1:
+            break
     
-del model
+    # test_stats, coco_evaluator = evaluate(model, criterion, postprocessors,
+    #                                      data_loader_val, base_ds, device, args.output_dir)
+
 
 torch.cuda.empty_cache()
 
