@@ -144,7 +144,7 @@ def make_coco_transforms(image_set):
 
     if image_set == 'val':
         return T.Compose([
-            T.RandomResize([800], max_size=1333),
+            # T.RandomResize([800], max_size=1333),
             normalize,
         ])
 
@@ -169,7 +169,7 @@ def make_kitti_transforms(image_set):
 
     elif image_set == 'val':
         return T.Compose([
-            T.Resize((384, 1248)),  # Fixed resize matching KITTI shape while keeping ratio
+            T.resize((384, 1248)),  # Fixed resize matching KITTI shape while keeping ratio
             normalize,
         ])
     else:
@@ -206,9 +206,9 @@ def build(image_set, args):
     }
 
     img_folder, ann_file = PATHS[image_set]
-    if args.dataset_file == 'kitti':
+    if args.dataset_file == 'coco':
         dataset = CocoDetection(img_folder, ann_file, transforms=make_coco_transforms(image_set), return_masks=args.masks)
-    elif args.dataset_file == 'coco':
+    elif args.dataset_file == 'kitti':
         dataset = CocoDetection(img_folder, ann_file, transforms=make_kitti_transforms(image_set), return_masks=args.masks)
     elif args.dataset_file == 'cityscapes':
         dataset = CocoDetection(img_folder, ann_file, transforms=make_cityscapes_transforms(image_set), return_masks=args.masks)    
