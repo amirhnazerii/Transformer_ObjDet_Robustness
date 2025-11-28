@@ -79,6 +79,53 @@ python attack_Main.py --backbone $backbonee --resume $model --coco_path $path --
 # python attack_Main.py --backbone $backbonee --resume $model --coco_path $path --attack_type $attack_type --cw_c 10 --save_images False --dataset $dataset_name > /home/anazeri/Transformer_ObjDet_Robustness/outputs/kitti/cw_attack/cw_c10_kitti_resiz_detrR50.txt
 
 
+# ============================================================================
+# DAG (Dense Adversary Generation) Attack - KITTI Dataset
+# Parameters: eps=8/255, step_size=1/255, iters=100, untargeted
+# Matches COCO configuration for cross-dataset consistency
+# ============================================================================
+
+dataset_name='kitti'
+path='/home/anazeri/fiftyone/kitti_coco/kitti_val/'
+model_name_ls=('r50' 'r50dc5')
+model=('/scratch/anazeri/outputs11202023_R50_kitti_imgs6481_epch25/checkpoint.pth' '/home/anazeri/detr_finetune/outputs12022023_R50DC5_kitti_img6481_epch25/checkpoint.pth')
+backbone_ls=('resnet50' 'resnet50')
+attack='dag'
+dag_eps_list=(0.0314)       # 8/255
+dag_eps_str_list=('eps08')
+dag_step_size=0.0039        # 1/255
+dag_iters=100
+
+for i in ${!model_name_ls[@]}; do
+  for j in ${!dag_eps_str_list[@]}; do
+    
+    dilation_flag=""
+    if [[ ${model_name_ls[$i]} = *'dc5'* ]]; then
+      dilation_flag="--dilation"
+    fi
+    
+    echo "Running DAG attack on DETR-${model_name_ls[$i]} (KITTI) with eps=${dag_eps_list[$j]}"
+    python attack_Main_v3_modified.py \
+      --backbone ${backbone_ls[$i]} \
+      --resume ${model[$i]} \
+      $dilation_flag \
+      --coco_path $path \
+      --attack yes \
+      --attack_type $attack \
+      --dag_eps ${dag_eps_list[$j]} \
+      --dag_step_size $dag_step_size \
+      --dag_iters $dag_iters \
+      --dag_targeted False \
+      --save_images False \
+      --dataset_file $dataset_name \
+      --save_images_tensor False \
+      > /home/anazeri/Transformer_ObjDet_Robustness/eval_results/${attack}/${dataset_name}/${attack}_${dag_eps_str_list[$j]}_${dataset_name}_detr${model_name_ls[$i]}.txt 2>&1
+      
+  done
+done
+
+
+
 
 
 

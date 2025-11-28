@@ -149,6 +149,52 @@ for i in ${!model_name_ls[@]}; do
 done
 
 
+# ============================================================================
+# DAG (Dense Adversary Generation) Attack - COCO Dataset
+# Parameters: eps=8/255, step_size=1/255, iters=100, untargeted
+# ============================================================================
+
+dataset_name='coco'
+path='/home/anazeri/Adv_ViT_OD/datasets/coco_dataset2017/'
+model_name_ls=('r50' 'r50dc5')
+model=('https://dl.fbaipublicfiles.com/detr/detr-r50-e632da11.pth' 'https://dl.fbaipublicfiles.com/detr/detr-r50-dc5-f0fb7ef5.pth')
+backbone_ls=('resnet50' 'resnet50')
+attack='dag'
+dag_eps_list=(0.0314)       # 8/255
+dag_eps_str_list=('eps08')
+dag_step_size=0.0039        # 1/255
+dag_iters=100
+
+for i in ${!model_name_ls[@]}; do
+  for j in ${!dag_eps_str_list[@]}; do
+    
+    dilation_flag=""
+    if [[ ${model_name_ls[$i]} = *'dc5'* ]]; then
+      dilation_flag="--dilation"
+    fi
+    
+    echo "Running DAG attack on DETR-${model_name_ls[$i]} with eps=${dag_eps_list[$j]}"
+    python attack_Main_v3_modified.py \
+      --backbone ${backbone_ls[$i]} \
+      --resume ${model[$i]} \
+      $dilation_flag \
+      --coco_path $path \
+      --attack yes \
+      --attack_type $attack \
+      --dag_eps ${dag_eps_list[$j]} \
+      --dag_step_size $dag_step_size \
+      --dag_iters $dag_iters \
+      --dag_targeted False \
+      --save_images False \
+      --dataset_file $dataset_name \
+      --save_images_tensor False \
+      > /home/anazeri/Transformer_ObjDet_Robustness/eval_results/${attack}/${dataset_name}/${attack}_${dag_eps_str_list[$j]}_${dataset_name}_detr${model_name_ls[$i]}.txt 2>&1
+      
+  done
+done
+
+
+
 # python attack_Main.py --backbone $backbonee --resume $model --coco_path $path --attack_type $attack_type --cw_c 1 --save_images True --dataset $dataset_name --save_images_path /scratch/anazeri/CW/coco/coco_origsize_detr_r50_cw_c1/ > /home/anazeri/Transformer_ObjDet_Robustness/outputs/coco/cw_attack/cw_c1_coco_origsize_detrR50.txt
 
 
