@@ -433,7 +433,10 @@ def cw_attack(img_tensors, learning_rate, model, annotation, criterion, UnNorm, 
 
 def dag_attack(img_tensors, step_size, model, annotation, criterion, eps, iters, targeted=False, target_class=None):
     """
-    Classification-focused Dense Adversary Generation (DAG) attack for DETR.
+    Dense Adversary Generation (DAG) attack for DETR - Untargeted variant.
+    
+    Maximizes classification loss to cause misclassification of ground truth objects.
+    This is the untargeted attack that works against the model's detection capability.
     
     Args:
         img_tensors: Input image tensors (normalized)
@@ -441,15 +444,17 @@ def dag_attack(img_tensors, step_size, model, annotation, criterion, eps, iters,
         model: Target DETR model
         annotation: Ground truth annotations
         criterion: Loss criterion
-        UnNorm: Denormalization function
-        eps: Maximum perturbation magnitude (epsilon)
+        eps: Maximum perturbation magnitude (epsilon, L∞ ball)
         iters: Number of attack iterations
-        targeted: Whether to perform targeted attack
-        target_class: Target class ID for targeted attack
+        targeted: Must be False for untargeted DAG attack
+        target_class: Unused for untargeted attack
         
     Returns:
-        Perturbed image within epsilon ball
+        Perturbed image within epsilon ball that maximizes loss against ground truth
     """
+    # Untargeted DAG always operates in untargeted mode
+    assert not targeted, "DAG implementation currently supports untargeted attacks only"
+    
     # Keep a copy of the original normalized image for projection
     original_img = img_tensors.tensors.clone().detach()
     
@@ -470,21 +475,11 @@ def dag_attack(img_tensors, step_size, model, annotation, criterion, eps, iters,
         # Forward pass
         outputs = model(adv_tensors)
         
-        # Calculate loss based on attack type (targeted or untargeted)
+        # Calculate loss: negative CE loss to MAXIMIZE loss against ground truth
         model.zero_grad()
-        
-        if targeted:
-            assert target_class is not None, "Target class must be specified for targeted attack"
-        
-            # Clone and modify annotation: set all labels to target_class
-            modified_anno = copy.deepcopy(annotation[0])
-            modified_anno['labels'] = torch.full_like(modified_anno['labels'], target_class)
-        
-            # Compute only classification loss with modified labels
-            loss_dict = criterion(outputs, [modified_anno])
-            loss = loss_dict['loss_ce']
-        else:
-            raise ValueError(f'args.targeted must be set True')
+        loss_dict = criterion(outputs, [annotation[0]])
+        # Use negative loss to maximize against ground truth (untargeted attack)
+        loss = -loss_dict['loss_ce']
         
         loss_history.append(loss.item())
         
@@ -494,11 +489,11 @@ def dag_attack(img_tensors, step_size, model, annotation, criterion, eps, iters,
         # Get gradient
         grad = perturbed_img.grad.detach()
         
-        # Update step: Step in direction of gradient sign
+        # Update step: Step in direction of gradient sign (direction of increasing loss)
         with torch.no_grad():
             perturbed_img = perturbed_img.detach() + step_size * grad.sign()
             
-            # Project back to epsilon ball around original image
+            # Project back to epsilon ball around original image (L∞ constraint)
             delta = perturbed_img - original_img
             delta = torch.clamp(delta, -eps, eps)
             perturbed_img = original_img + delta
@@ -682,18 +677,19 @@ if args.attack== 'yes':
                 #perturbed_img = fgsm_attack(img_denorm, args.epsilon, img_grad) # size: [1, 3, 800, 1201]
                 if args.attack_type == 'fgsm':
                     perturbed_img = fgsm_attack(img_tensors, args.epsilon, model, annotation, criterion) # size: [1, 3, 800, 1201]
-
                 
                 # NEW: Call the correct version based on attack type
                 if args.attack_type == 'pgd':
+                    # alpha is step size, args.pgd_eps is max perturbation epsilon
+                    random_start_bool = (args.random_start == 'True')
                     perturbed_img = pgd_attack(img_tensors, args.epsilon, model, annotation, 
                                               criterion, args.pgd_eps, args.pgd_iters,
-                                              random_start=None)
+                                              random_start=random_start_bool)
                 
                 if args.attack_type == 'cw':
                     perturbed_img = cw_attack(img_tensors, args.cw_lr, model, annotation, criterion, UnNorm, args.cw_c, args.cw_kappa, args.cw_iters) # size: [1, 3, 800, 1201]
 
-                # Add DAG attack call
+                # Add DAG attack call - untargeted only
                 if args.attack_type == 'dag':
                     perturbed_img = dag_attack(
                         img_tensors, 
@@ -703,8 +699,7 @@ if args.attack== 'yes':
                         criterion, 
                         args.dag_eps, 
                         args.dag_iters,
-                        targeted=args.dag_targeted,
-                        target_class=args.dag_target_class
+                        targeted=False
                     )
 
 
