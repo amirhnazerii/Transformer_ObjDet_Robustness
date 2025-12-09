@@ -782,12 +782,12 @@ if args.attack == 'no':
     test_stats, coco_evaluator = evaluate(model, criterion, postprocessors,
                                          data_loader_val, base_ds, device, args.output_dir)
 
-del img_tensors_list   
-del annotation_list   
-del adv_dataset_val    
-del adv_data_loader_val   
+# del img_tensors_list   
+# del annotation_list   
+# del adv_dataset_val    
+# del adv_data_loader_val   
     
-del model
+# del model
 
 torch.cuda.empty_cache()
 
