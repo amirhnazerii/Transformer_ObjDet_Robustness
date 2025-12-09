@@ -1,0 +1,48 @@
+#PBS -l select=1:ncpus=4:mem=150gb:ngpus=1:gpu_model=v100,walltime=4:00:00
+#PBS -N pgd_kitti_resiz_Detr2Detr
+#PBS -o stdout_pgd_kitti_resiz_Detr2Detr
+#PBS -e stderr_pgd_kitti_resiz_Detr2Detr
+#PBS -M anazeri@clemson.edu
+
+
+cd $PBS_O_WORKDIR
+
+module add anaconda3/2022.05-gcc/9.5.0
+source activate Detr_env1
+
+# path='/home/anazeri/Adv_ViT_OD/datasets/coco_dataset2017/'
+# model=('https://dl.fbaipublicfiles.com/detr/detr-r50-e632da11.pth' 'https://dl.fbaipublicfiles.com/detr/detr-r50-dc5-f0fb7ef5.pth' 'https://dl.fbaipublicfiles.com/detr/detr-r101-2c7b67e5.pth' 'https://dl.fbaipublicfiles.com/detr/detr-r101-dc5-a2e86def.pth')
+# attack='cw'
+# cw_c_val=(1 3 5)
+# cw_c_str_list=('cw1' 'cw3' 'cw5')
+
+
+dataset_name='kitti'
+path='/home/anazeri/fiftyone/kitti_coco/kitti_val/'
+model_name_ls=('r50' 'r50dc5' 'r101' 'r101dc5')
+model=('/scratch/anazeri/outputs11202023_R50_kitti_imgs6481_epch25/checkpoint.pth' '/home/anazeri/detr_finetune/outputs12022023_R50DC5_kitti_img6481_epch25/checkpoint.pth' '/scratch/anazeri/outputs11252023_R101_kitti_img6481_epch25/checkpoint.pth' '/scratch/anazeri/outputs11272023_R101DC5_kitti_img6481_epch25/checkpoint.pth')
+backbone_ls=('resnet50' 'resnet50' 'resnet101' 'resnet101')
+attack='pgd'
+epsilon_list=0.03
+epsilon_str_list='003'
+
+
+for i in ${!model_name_ls[@]}; do
+  for j in ${!model_name_ls[@]}; do
+  
+    echo ${model_name_ls[$i]}
+    if [[ ${model_name_ls[$i]} = *'dc5'* ]]; then  #check string contains this substring.
+        echo dilation activated 
+        python attack_Main_v2.py --backbone ${backbone_ls[$i]} --resume ${model[$i]} --dilation --coco_path $path  --attack no --attack_type $attack --epsilon $epsilon_list --save_images_tensor False --dataset $dataset_name --save_images_tensor_path /scratch/anazeri/$attack/$dataset_name/${dataset_name}_resiz_imgTens_detr_${model_name_ls[$j]}_${epsilon_str_list}/ > /home/anazeri/Transformer_ObjDet_Robustness/eval_results/${attack}/${dataset_name}/${attack}_${epsilon_str_list}_${dataset_name}_resiz_tens_detr${model_name_ls[$j]}to_detr${model_name_ls[$i]}.txt
+          
+    else
+        python attack_Main_v2.py --backbone ${backbone_ls[$i]} --resume ${model[$i]} --coco_path $path  --attack no --attack_type $attack --epsilon $epsilon_list --save_images_tensor False --dataset $dataset_name --save_images_tensor_path /scratch/anazeri/$attack/$dataset_name/${dataset_name}_resiz_imgTens_detr_${model_name_ls[$j]}_${epsilon_str_list}/ > /home/anazeri/Transformer_ObjDet_Robustness/eval_results/${attack}/${dataset_name}/${attack}_${epsilon_str_list}_${dataset_name}_resiz_tens_detr${model_name_ls[$j]}to_detr${model_name_ls[$i]}.txt
+        
+    fi
+    
+    done
+done
+
+
+
+          
