@@ -125,6 +125,9 @@ if __name__ == '__main__':
                         help='start epoch')
     parser.add_argument('--eval', action='store_true')
     parser.add_argument('--num_workers', default=2, type=int)
+    # added by amirhnazerii
+    parser.add_argument('--subset', default=float('inf'), type=float)
+
 
     # distributed training parameters
     parser.add_argument('--world_size', default=1, type=int,
@@ -754,8 +757,10 @@ if args.attack== 'yes':
                 annotation_list.append(annotation[0])
                 if i % 100 == 0:
                       print("%d Finished" % i)
-                # if i == 50:
-                #     break
+                
+                
+                if i > args.subset:
+                    break
                     
                 del img
                 del annotation 
