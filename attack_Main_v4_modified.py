@@ -731,7 +731,11 @@ if args.attack== 'yes':
                     from PIL import Image
                     import torchvision.transforms.functional as TF
                     adv_denorm = UnNorm(perturbed_img.detach().cpu())
-                    perturbed_img_resiz = FF.resize(adv_denorm, imgs_hw_list[i] )
+
+                    if args.dataset_file == 'cityscapes':
+                        perturbed_img_resiz = FF.resize(adv_denorm, np.array([1024, 2048]))
+                    else:
+                        perturbed_img_resiz = FF.resize(adv_denorm, imgs_hw_list[i] )
                     # Add before save_image
                     tensor = perturbed_img_resiz
                     utils2.save_image(perturbed_img_resiz, args.save_images_path + imgs_filenames_list[i]+ ".png")
